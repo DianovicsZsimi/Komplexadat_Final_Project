@@ -1,0 +1,98 @@
+---
+title: "kenya_code"
+author: "Dianovics Dominik"
+date: "2023-12-15"
+output: html_document
+---
+
+```{r setup}
+library(tidytuesdayR)
+library(tidyverse)
+library(tools)
+library(stringdist)
+library(fuzzyjoin)
+```
+
+```{r data import}
+data <- tt_load('2021-01-19')
+
+gender <- data$gender
+crops <- data$crops
+households <- data$households
+```
+
+```{r data cleaning}
+view(crops)
+str(crops)
+
+#Issue with crops, all names are caps lock
+
+crops <- crops |> 
+  mutate(
+    SubCounty = str_to_lower(SubCounty),
+    SubCounty = str_to_title(SubCounty)
+  )
+
+#Removed the Khat crop because I don't know what that is and there are too many missing values
+crops <- crops |> 
+  select(-'Khat (Miraa)')
+
+view(households)
+str(households)
+
+view(gender)
+str(gender)
+
+#Issue with city naming, not consistent through datasets
+
+crops <- crops |> 
+  mutate(
+    County = SubCounty,
+  ) |> 
+  select(-SubCounty)
+
+
+gender <- gender |> 
+  mutate(
+    County = ifelse(County == "Total", "Kenya", County)
+  )
+
+households$County <- trimws(households$County)
+str(households)
+
+colnames(households)
+
+#Function that tries to match the County names to each other by stringdist
+
+find_best_match <- function(county, reference_counties) {
+  distances <- stringdistmatrix(county, reference_counties)
+  best_match_index <- which.min(distances)
+  best_match <- reference_counties[best_match_index]
+  return(best_match)
+}
+
+#Function had an issue with only one value, the Nairobi city, probably due to two words in the name
+crops$County[crops$County == "Nairobi"] <- "Nairobi City"
+crops$best_match <- sapply(crops$County, find_best_match, reference_counties = gender$County)
+
+
+households$best_match <- sapply(households$County, find_best_match, reference_counties = gender$County)
+
+
+merged_dataset <- left_join(crops, households, gender, by = c("best_match"))
+
+# Clean up 
+merged_dataset <- merged_dataset |> 
+  rename(County= best_match) |> 
+  select(-County.x, -County.y)
+
+#County in the first column
+merged_dataset <- merged_dataset |> 
+  select(County, everything())
+
+```
+
+```{r}
+
+```
+
