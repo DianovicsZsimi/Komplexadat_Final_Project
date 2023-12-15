@@ -11,6 +11,8 @@ library(tidyverse)
 library(tools)
 library(stringdist)
 library(fuzzyjoin)
+library(patchwork)
+library(gridExtra)
 ```
 
 ```{r data import}
@@ -79,12 +81,12 @@ crops$best_match <- sapply(crops$County, find_best_match, reference_counties = g
 households$best_match <- sapply(households$County, find_best_match, reference_counties = gender$County)
 
 
-merged_dataset <- left_join(crops, households, gender, by = c("best_match"))
+merged_dataset <- left_join(crops, households, by = c("best_match" = "County")) |> 
+  left_join(gender, by = c("best_match" = "County"))
 
 # Clean up 
 merged_dataset <- merged_dataset |> 
-  rename(County= best_match) |> 
-  select(-County.x, -County.y)
+  select(-best_match, -best_match.y)
 
 #County in the first column
 merged_dataset <- merged_dataset |> 
@@ -93,6 +95,79 @@ merged_dataset <- merged_dataset |>
 ```
 
 ```{r}
+#Gender in the whole of Kenya
+data_kenya <- filter(merged_dataset, County == "Kenya")
 
+data_kenya_long <- pivot_longer(data_kenya, cols = c("Male", "Female", "Intersex"), names_to = "Gender", values_to = "Count")
+
+data_kenya_long |> 
+  ggplot(aes(x = Gender, y = Count)) +
+  geom_col()
+
+#Farming production in the 5 biggest and smalles counties by production
+smallest_producers <- merged_dataset |> 
+  arrange(Farming) |> 
+  slice_head(n = 5) |> 
+  ggplot(aes(x = County, y = Farming)) +
+  geom_col() +
+  labs(title = "Top 5 Counties with Smallest Farming Values",
+       x = "County",
+       y = "Farming") + 
+  ylim(0, 400000)
+
+biggest_producers <- merged_dataset |> 
+  filter(County != "Kenya") |> 
+  arrange(desc(Farming)) |> 
+  slice_head(n = 5) |> 
+  ggplot(aes(x = County, y = Farming)) +
+  geom_col() +
+  labs(title = "Top 5 Counties with Biggest Farming Values",
+       x = "County",
+       y = "Farming") +
+  ylim(0, 400000)
+
+grid.arrange(smallest_producers, biggest_producers, ncol = 2)
 ```
 
+```{r}
+#Population in the 5 biggest and smalles counties
+
+smallest_population <- merged_dataset |> 
+  arrange(Population) |> 
+  slice_head(n = 5) |> 
+  ggplot(aes(x = County, y = Population)) +
+  geom_col() +
+  labs(title = "Top 5 Counties with Smallest Population",
+       x = "County",
+       y = "Population") + 
+  ylim(0, 3000000)
+
+biggest_population <- merged_dataset |>
+  filter(County != "Kenya") |> 
+  arrange(desc(Population)) |> 
+  slice_head(n = 5) |> 
+  ggplot(aes(x = County, y = Population)) +
+  geom_col() +
+  labs(title = "Top 5 Counties with Biggest Population",
+       x = "County",
+       y = "Population") + 
+  ylim(0, 3000000)
+
+grid.arrange(smallest_population, biggest_population, ncol = 2)
+```
+
+```{r hypotheses}
+#Linear regression
+##Does the population affect the farming production?
+##Is there a positive correlation between Tea and Coffee production?
+##The Average household size is higher in counties with higher farming activities.
+
+#ANOVA
+##There is a significant difference in "Male," "Female," and "Intersex" populations across counties.
+
+#Mediation
+##There is an interaction effect between "Population" density and "Farming" activities, where the impact of farming on household size is more pronounced in densely populated counties.
+
+
+colnames(merged_dataset)
+```
