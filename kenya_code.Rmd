@@ -2,7 +2,9 @@
 title: "kenya_code"
 author: "Dianovics Dominik"
 date: "2023-12-15"
-output: html_document
+output:
+  html_document: default
+  pdf_document: default
 ---
 
 ```{r setup}
@@ -18,6 +20,7 @@ library(gridExtra)
 library(broom)
 library(lmtest)
 library(robustbase)
+library(MASS)
 ```
 
 ```{r data import}
@@ -269,20 +272,22 @@ merged_dataset |>
 
 ```{r hypotheses}
 #Linear regression
-##Does the population affect the farming production?
-##Is there a positive correlation between Tea and Coffee production?
-##The Average household size is higher in counties with higher farming activities.
+##H1: Does the population affect the farming production?
+##H2: Is there a positive correlation between Tea and Coffee production?
+
 
 #ANOVA
-##There is a significant difference in "Male," "Female," and "Intersex" populations across counties.
+##H3: There is a significant difference in "Male," "Female," and "Intersex" populations across counties.
 
 #Mediation
-##There is an interaction effect between "Population" density and "Farming" activities, where the impact of farming on household size is more pronounced in densely populated counties.
+##H4: There is an interaction effect between "Population" density and "Farming" activities, where the impact of farming on household size is more pronounced in densely populated counties.
 
 ```
 
-```{r Linear regression}
+```{r H1, linear regression model 1}
 #Does the population affect the farming production?
+
+cor(counties_data_no_capital$Population, counties_data_no_capital$Farming)
 
 counties_data |> 
   ggplot(aes(x = Population, y = Farming)) +
@@ -333,7 +338,7 @@ shapiro.test(pop_farming$residuals)
 
 ```
 
-```{r linear regression 2}
+```{r H1, linear regression model 2}
 #Assumption 2.1: Normality
 
 counties_data_no_capital <- counties_data |> 
@@ -369,18 +374,116 @@ shapiro.test(pop_farming_no_capital$residuals)
 
 ```
 
-```{r}
-cor(counties_data_no_capital$Population, counties_data_no_capital$Farming)
+```{r H1, robust regression}
 
-counties_data_no_capital |> 
-  ggplot(aes(x = Population, y = Farming)) +
-  geom_line() +
-  geom_smooth(method = NULL, se = FALSE)
+#Final model
+
+##Using the data without Nairobi so linearity is met
+
+qqnorm(robust_pop_farming$residuals)
+qqnorm(box_cox_model$residuals)
+
+#Box-Cox transformation
+
+bc <- boxcox(Farming ~ Population, data = counties_data_no_capital)
+lambda <- bc$Population[which.max(bc$Farming)]
+
+
+box_cox_model <- lmrob(((Farming^lambda-1)/lambda) ~ Population, data = counties_data_no_capital)
 
 #Huber regression
-robust_pop_farming <- lmrob(Farming ~ Population, data = counties_data)
-glance(robust_pop_farming)
+box_cox_model <- lmrob(Farming ~ Population, data = counties_data_no_capital_sqrt)
+summary(box_cox_model)
+
+#Assumption 3.1: Normality of residuals
+
+shapiro.test(box_cox_model$residuals)
+
+##Assumption not met
+
+#Assumption 3.2: Linearity
+
+raintest(box_cox_model)
+
+#Assumption met
+
+#Assumption 3.3: Homoscedasticity
+
+bptest(box_cox_model)
+
+#Assumption not met
+
+#Furthermore, robust regression is not suitable for less than 100 observations
 ```
 
+In conclusion, there are too many issues with the data to create a reliable regression between population and farming, especially because of the issue of nonlinearity.
 
+```{r H2}
+##H2: Is there a positive correlation between Tea and Coffee production?
+
+cor(counties_data_no_capital$Tea, counties_data_no_capital$Coffee, use = "pairwise.complete.obs")
+
+counties_data_no_capital |> 
+  ggplot(aes(x = Tea, y = Coffee)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE) +
+  labs(
+    title = "Tea and Coffee Production",
+    x = "Tea",
+    y = "Coffee"
+  ) +
+  theme_minimal()
+
+tea_model <- lm(Tea ~ Coffee, data = counties_data_no_capital)
+
+#Assumption 4.1: Normality
+
+shapiro.test(counties_data_no_capital$Tea)
+##Normality not met
+
+counties_data_no_capital_log <- counties_data_no_capital |> 
+  mutate(Tea = log(Tea))
+
+shapiro.test(counties_data_no_capital_log$Tea)
+
+#Normality met
+
+tea_model <- lm(Tea ~ Coffee, data = counties_data_no_capital_log)
+
+#Assumption 4.2: Linearity
+
+raintest(tea_model)
+
+##Linearity met
+
+#Assumption 4.3: Homoscedasticity
+
+bptest(tea_model)
+
+##Homoscedasticity met
+
+#Assumption 4.4: Normality of residuals
+
+shapiro.test(tea_model$residuals)
+
+##Normality of residuals met
+
+#All asumptions met
+
+glance(tea_model)
+summary(tea_model)
+
+```
+
+```{r H2 tables}
+library(apaTables)
+
+summary_model <- summary(tea_model)
+
+apa_table <- apa_print.(summary_model)
+
+# Print the APA-style table
+print(apa_table)
+
+```
 
