@@ -442,7 +442,8 @@ shapiro.test(counties_data_no_capital$Tea)
 ##Normality not met
 
 counties_data_no_capital_log <- counties_data_no_capital |> 
-  mutate(Tea = log(Tea))
+  mutate(Tea = log(Tea),
+         Coffee = log(Coffee))
 
 shapiro.test(counties_data_no_capital_log$Tea)
 
@@ -477,13 +478,21 @@ summary(tea_model)
 
 ```{r H2 tables}
 library(apaTables)
-
-summary_model <- summary(tea_model)
-
-apa_table <- apa_print.(summary_model)
-
-# Print the APA-style table
+apa_table <- apa.reg.table(tea_model)
 print(apa_table)
 
-```
+library(rempsyc)
 
+stats.table <- as.data.frame(summary(tea_model)$coefficients)
+
+CI <- confint(tea_model)
+
+stats.table <- cbind(row.names(stats.table), stats.table, CI)
+
+names(stats.table) <- c("Variable", "Estimate", "Std. Error", "t-value", "p", "CI_lower", "CI_upper")
+
+nice_table(stats.table, highlight = .05)
+
+
+#Issues: no R2, no asterisk next to p value, no Notes. section
+```
