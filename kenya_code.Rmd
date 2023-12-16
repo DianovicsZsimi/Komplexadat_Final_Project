@@ -12,7 +12,12 @@ library(tools)
 library(stringdist)
 library(fuzzyjoin)
 library(patchwork)
+library(knitr)
+library(gt)
 library(gridExtra)
+library(broom)
+library(lmtest)
+library(robustbase)
 ```
 
 ```{r data import}
@@ -58,6 +63,8 @@ gender <- gender |>
   mutate(
     County = ifelse(County == "Total", "Kenya", County)
   )
+
+gender$County <- gsub(" ", "", gender$County)
 
 households$County <- trimws(households$County)
 str(households)
@@ -156,6 +163,110 @@ biggest_population <- merged_dataset |>
 grid.arrange(smallest_population, biggest_population, ncol = 2)
 ```
 
+```{r Descriptives}
+
+#Means
+merged_dataset %>%
+  summarise(
+    Population = mean(Population),
+    Farming = mean(Farming),
+    "N of households" = mean(NumberOfHouseholds)
+  ) %>%
+  pivot_longer(everything(), names_to = "Variable", values_to = "Mean") %>%
+  mutate(
+    Mean = round(Mean, 0)
+  ) |> 
+  gt() %>%
+  tab_header(
+    title = md("**Descriptive statistics**"),
+    subtitle = "Kenya census 2019"
+  ) %>%
+  fmt_number(
+    columns = vars(Variable)
+  )
+
+
+#Standard deviations
+merged_dataset |> 
+  summarise(
+    Population = sd(Population),
+    Farming = sd(Farming),
+    "N of households" = sd(NumberOfHouseholds)
+  ) |> 
+  pivot_longer(everything(), names_to = "Variable", values_to = "SD") |> 
+  mutate(
+    SD = round(SD, 0)
+  ) |>
+  gt() |> 
+  tab_header(
+    title = md("**Descriptive statistics**"),
+    subtitle = "Kenya census 2019"
+  ) |> 
+  fmt_number(
+    columns = c(Variable)
+  )
+
+#Outliers with boxplots
+
+##Population
+merged_dataset |> 
+  filter(County != "Kenya") |> 
+  ggplot(aes(x = 1, y = Population)) +
+  geom_boxplot() +
+  geom_text(aes(label = ifelse(Population < quantile(Population, 0.25) - 1.5 * IQR(Population) | 
+                                  Population > quantile(Population, 0.75) + 1.5 * IQR(Population), County, "")),
+            size = 5)
+##Farming
+merged_dataset |> 
+  filter(County != "Kenya") |> 
+  ggplot(aes(x = 1, y = Farming)) +
+  geom_boxplot() +
+  geom_text(aes(label = ifelse(Farming < quantile(Farming, 0.25) - 1.5 * IQR(Farming) | 
+                                  Farming > quantile(Farming, 0.75) + 1.5 * IQR(Farming), County, "")),
+            size = 5)
+##Households
+merged_dataset |>
+  filter(County != "Kenya") |> 
+  ggplot(aes(x = 1, y = NumberOfHouseholds)) +
+  geom_boxplot() +
+  geom_text(aes(label = ifelse(NumberOfHouseholds < quantile(NumberOfHouseholds, 0.25) - 1.5 * IQR(NumberOfHouseholds) | 
+                                  NumberOfHouseholds > quantile(NumberOfHouseholds, 0.75) + 1.5 * IQR(NumberOfHouseholds), County, "")),
+            size = 5)
+
+
+#Conclusion: Even though there are three outliers, I will not remove them because they represent a natural occurence, where people congregate in urban areas, and the outliers are the biggest cities in Kenya.
+
+#Plant production distribution
+
+plants <- c("Tea", "Coffee", "Avocado", "Citrus", "Mango", "Coconut", "Macadamia", "Cashew Nut")
+
+plant_colors <- c(
+  Tea = "darkgreen",
+  Coffee = "saddlebrown",
+  Avocado = "limegreen",
+  Citrus = "yellow",
+  Mango = "darkorange",
+  Coconut = "#d0d1e6",
+  Macadamia = "darkolivegreen",
+  "Cashew Nut" = "goldenrod"
+)
+
+merged_dataset |> 
+  filter(County == "Kenya") |> 
+  pivot_longer(cols = plants, names_to = "Crop", values_to = "Production") |> 
+  ggplot(aes(x = fct_reorder(Crop, Production), y = Production)) +
+  geom_bar(stat = "identity", fill = plant_colors) +
+  coord_flip() +
+  theme_minimal() +
+  labs(
+    title = "Plant production in Kenya",
+    x = "Crop",
+    y = "Production"
+  )
+
+
+```
+
 ```{r hypotheses}
 #Linear regression
 ##Does the population affect the farming production?
@@ -168,6 +279,108 @@ grid.arrange(smallest_population, biggest_population, ncol = 2)
 #Mediation
 ##There is an interaction effect between "Population" density and "Farming" activities, where the impact of farming on household size is more pronounced in densely populated counties.
 
-
-colnames(merged_dataset)
 ```
+
+```{r Linear regression}
+#Does the population affect the farming production?
+
+counties_data |> 
+  ggplot(aes(x = Population, y = Farming)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE) +
+  labs(
+    title = "Population and Farming Production",
+    x = "Population",
+    y = "Farming"
+  ) +
+  theme_minimal()
+
+#Assumption 1.1: Normality
+
+counties_data <- merged_dataset |> 
+  filter(County != "Kenya")
+
+shapiro.test(counties_data$Population)
+hist(counties_data$Population)
+shapiro.test(counties_data$Farming)
+hist(counties_data$Farming)
+
+##Nairobi significantly alters the normality
+
+pop_farming <- lm(Farming ~ Population, data = counties_data)
+glance(pop_farming)
+
+#Assumption 1.2: Linearity
+
+raintest(pop_farming)
+
+##Shows nonlinearity
+
+#Assumption 1.3: Homoscedasticity
+
+bptest(pop_farming)
+
+##Shows heteroscedasticity
+
+#Assumption 1.4: Normality of residuals
+
+shapiro.test(pop_farming$residuals)
+
+##Normality of residuals met
+
+#Overall the model does not work with Nairobi in it
+
+
+```
+
+```{r linear regression 2}
+#Assumption 2.1: Normality
+
+counties_data_no_capital <- counties_data |> 
+  filter(County != "Nairobi City")
+
+shapiro.test(counties_data_no_capital$Population)
+hist(counties_data_no_capital$Population)
+
+##Removing Nairobi results in a normal population distribution
+
+pop_farming_no_capital <- lm(Farming ~ Population, data = counties_data_no_capital)
+glance(pop_farming_no_capital)
+
+#Assumption 2.2: Linearity
+
+raintest(pop_farming_no_capital)
+
+##Shows linearity
+
+#Assumption 2.3: Homoscedasticity
+
+bptest(pop_farming_no_capital)
+
+##Still shows heteroscedasticity
+
+#Assumption 2.4: Normality of residuals
+
+shapiro.test(pop_farming_no_capital$residuals)
+
+##Normality of residuals not met
+
+##This model is still not sufficient, but it massively improves explanatory or predictive power, as can be seen by the R2 value.
+
+```
+
+```{r}
+cor(counties_data_no_capital$Population, counties_data_no_capital$Farming)
+
+counties_data_no_capital |> 
+  ggplot(aes(x = Population, y = Farming)) +
+  geom_line() +
+  geom_smooth(method = NULL, se = FALSE)
+
+#Huber regression
+robust_pop_farming <- lmrob(Farming ~ Population, data = counties_data)
+glance(robust_pop_farming)
+```
+
+
+
