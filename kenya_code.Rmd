@@ -21,6 +21,9 @@ library(broom)
 library(lmtest)
 library(robustbase)
 library(MASS)
+library(mediation)
+library(devtools)
+library(flexplot)
 ```
 
 ```{r data import}
@@ -44,8 +47,9 @@ crops <- crops |>
   )
 
 #Removed the Khat crop because I don't know what that is and there are too many missing values
-crops <- crops |> 
-  select(-'Khat (Miraa)')
+
+crops <- crops[, !colnames(crops) %in% "Khat (Miraa)"]
+
 
 view(households)
 str(households)
@@ -59,7 +63,7 @@ crops <- crops |>
   mutate(
     County = SubCounty,
   ) |> 
-  select(-SubCounty)
+  dplyr::select(-SubCounty)
 
 
 gender <- gender |> 
@@ -96,11 +100,11 @@ merged_dataset <- left_join(crops, households, by = c("best_match" = "County")) 
 
 # Clean up 
 merged_dataset <- merged_dataset |> 
-  select(-best_match, -best_match.y)
+  dplyr::select(-best_match, -best_match.y)
 
 #County in the first column
 merged_dataset <- merged_dataset |> 
-  select(County, everything())
+  dplyr::select(County, everything())
 
 ```
 
@@ -276,18 +280,17 @@ merged_dataset |>
 ##H2: Is there a positive correlation between Tea and Coffee production?
 
 
-#ANOVA
-##H3: There is a significant difference in "Male," "Female," and "Intersex" populations across counties.
-
 #Mediation
-##H4: There is an interaction effect between "Population" density and "Farming" activities, where the impact of farming on household size is more pronounced in densely populated counties.
+##H3: Farming is a mediator between population and number of households
 
 ```
 
 ```{r H1, linear regression model 1}
 #Does the population affect the farming production?
+counties_data <- merged_dataset |> 
+  filter(County != "Kenya")
 
-cor(counties_data_no_capital$Population, counties_data_no_capital$Farming)
+cor(counties_data$Population, counties_data$Farming)
 
 counties_data |> 
   ggplot(aes(x = Population, y = Farming)) +
@@ -302,8 +305,7 @@ counties_data |>
 
 #Assumption 1.1: Normality
 
-counties_data <- merged_dataset |> 
-  filter(County != "Kenya")
+
 
 shapiro.test(counties_data$Population)
 hist(counties_data$Population)
@@ -380,16 +382,17 @@ shapiro.test(pop_farming_no_capital$residuals)
 
 ##Using the data without Nairobi so linearity is met
 
-qqnorm(robust_pop_farming$residuals)
+bc <- boxcox(Farming ~ Population, data = counties_data_no_capital)
+lambda <- bc$x[which.max(bc$y)]
+
+
+box_cox_model <- lmrob(((Farming^lambda-1)/lambda) ~ Population, data = counties_data_no_capital)
+
 qqnorm(box_cox_model$residuals)
 
 #Box-Cox transformation
 
-bc <- boxcox(Farming ~ Population, data = counties_data_no_capital)
-lambda <- bc$Population[which.max(bc$Farming)]
 
-
-box_cox_model <- lmrob(((Farming^lambda-1)/lambda) ~ Population, data = counties_data_no_capital)
 
 #Huber regression
 box_cox_model <- lmrob(Farming ~ Population, data = counties_data_no_capital_sqrt)
@@ -496,3 +499,23 @@ nice_table(stats.table, highlight = .05)
 
 #Issues: no R2, no asterisk next to p value, no Notes. section
 ```
+
+```{r H3, Mediation analysis}
+#H3: Farming is a mediator between population and average household size
+
+cor(counties_data_no_capital$Population, counties_data_no_capital$Farming, use = "pairwise.complete.obs")
+cor(counties_data_no_capital$Population, counties_data_no_capital$AverageHouseholdSize, use = "pairwise.complete.obs")
+cor(counties_data_no_capital$Farming, counties_data_no_capital$AverageHouseholdSize, use = "pairwise.complete.obs")
+
+
+
+mediate_model <- lm(Farming ~ Population, data = counties_data_no_capital)
+summary(mediate_model)
+full_model <- lm(AverageHouseholdSize ~ Population + Farming, data = counties_data_no_capital)
+summary(full_model)
+results <- mediate(mediate_model, full_model, treat = "Population", mediator = "Farming", robustSE = TRUE, sims = 1000)
+summary(results)
+
+mediate_plot(AverageHouseholdSize ~ Population + Farming, data = counties_data_no_capital, mediator = Farming, method = "lm")
+```
+
