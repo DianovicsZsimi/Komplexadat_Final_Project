@@ -367,7 +367,7 @@ merged_dataset |>
   ggplot(aes(x = fct_reorder(Crop, Production), y = Production)) +
   geom_bar(stat = "identity", fill = plant_colors) +
   coord_flip() +
-  theme_minimal() +
+  theme_classic() +
   labs(
     title = "Plant production in Kenya",
     x = "Crop",
@@ -385,7 +385,7 @@ merged_dataset |>
 
 ## 2. **Mediation**
 
--   H3: *Farming* is a mediator between *population* and *number of households*
+-   H3: *Population* is a mediator between *Farming* and *Coffee*
 
 ### **Hypothesis** 1.a: Linear regression
 
@@ -409,13 +409,38 @@ counties_data |>
     x = "Population",
     y = "Farming"
   ) +
-  theme_minimal()
+  theme_classic() +
+  scale_y_continuous(labels = comma) +
+  scale_x_continuous(labels = comma)
 
 #Assumption 1.1: Normality
 shapiro.test(counties_data$Population)
-hist(counties_data$Population)
+counties_data |> 
+  ggplot(aes(x = Population)) +
+  geom_histogram(bins = 20) +
+  labs(
+    title = "Population",
+    x = "Population",
+    y = "Count"
+  ) +
+  theme_classic() +
+  scale_y_continuous(labels = comma) +
+  scale_x_continuous(labels = comma)
+
+
 shapiro.test(counties_data$Farming)
-hist(counties_data$Farming)
+counties_data |> 
+  ggplot(aes(x = Farming)) +
+  geom_histogram(bins = 20) +
+  labs(
+    title = "Farming",
+    x = "Farming",
+    y = "Count"
+  ) +
+  theme_classic() +
+  scale_y_continuous(labels = comma) +
+  scale_x_continuous(labels = comma)
+
 ##Nairobi significantly alters the normality
 
 pop_farming <- lm(Farming ~ Population, data = counties_data)
@@ -434,8 +459,9 @@ shapiro.test(pop_farming$residuals)
 
 #Summary of model
 glance(pop_farming)
-#Overall the model does not work with Nairobi in it
 ```
+#### Overall the model does not work with Nairobi in it, so I will remove it and see if it works without it. There is no normality and no homoscedasticity.
+
 
 ### **Hypothesis** 1.b: Linear regression without Nairobi
 
@@ -444,8 +470,20 @@ glance(pop_farming)
 counties_data_no_capital <- counties_data |> 
   filter(County != "Nairobi City")
 shapiro.test(counties_data_no_capital$Population)
-hist(counties_data_no_capital$Population)
-##Removing Nairobi results in a normal population distribution
+
+counties_data |> 
+  ggplot(aes(x = Population)) +
+  geom_histogram(bins = 20) +
+  labs(
+    title = "Population",
+    x = "Population",
+    y = "Count"
+  ) +
+  theme_classic() +
+  scale_y_continuous(labels = comma) +
+  scale_x_continuous(labels = comma)
+
+##Removing Nairobi does not result in a normal population distribution
 
 pop_farming_no_capital <- lm(Farming ~ Population, data = counties_data_no_capital)
 glance(pop_farming_no_capital)
@@ -461,9 +499,9 @@ bptest(pop_farming_no_capital)
 #Assumption 2.4: Normality of residuals
 shapiro.test(pop_farming_no_capital$residuals)
 ##Normality of residuals not met
-
-##This model is still not sufficient, but it massively improves explanatory or predictive power, as can be seen by the R2 value.
 ```
+#### This model is still not sufficient, but it massively improves explanatory or predictive power, as can be seen by the R2 value.
+
 
 ### **Hypothesis** 1.c: Robust regression without Nairobi
 
@@ -497,7 +535,7 @@ bptest(box_cox_model)
 #Furthermore, robust regression is not suitable for less than 100 observations
 ```
 
-### In conclusion, there are too many issues with the data to create a reliable regression between population and farming, especially because of the issue of nonlinearity.
+#### In conclusion, there are too many issues with the data to create a reliable regression between population and farming, especially because of the issue of nonlinearity.
 
 ### **Hypothesis** 2: Linear regression
 
@@ -567,7 +605,7 @@ stats.table <- as.data.frame(summary(tea_model)$coefficients)
 CI <- confint(tea_model)
 stats.table <- cbind(row.names(stats.table), stats.table, CI)
 names(stats.table) <- c("Variable", "Estimate", "Std. Error", "t-value", "p", "CI_lower", "CI_upper")
-nice_table(stats.table, highlight = .05, note = c("CI = Confidence Interval", "* p < 0.05"))
+nice_table(stats.table, title = "Model coefficients", highlight = .05, note = c("CI = Confidence Interval", "* p < 0.05"))
 ```
 
 ```{r H2 tables: Model fit}
@@ -588,20 +626,33 @@ nice_table(model_fit, title = "Model fit", note = c("* p < 0.05", "SD = Standard
 ## **Hypothesis** 3: Mediation
 
 ```{r H3, Mediation analysis}
-#H3: Farming is a mediator between population and average household size
+#H3: Population is a mediator between farming and Coffee
 
+#Check if they correlate
 cor(counties_data_no_capital$Population, counties_data_no_capital$Farming, use = "pairwise.complete.obs")
-cor(counties_data_no_capital$Population, counties_data_no_capital$AverageHouseholdSize, use = "pairwise.complete.obs")
-cor(counties_data_no_capital$Farming, counties_data_no_capital$AverageHouseholdSize, use = "pairwise.complete.obs")
+cor(counties_data_no_capital$Population, counties_data_no_capital$Coffee, use = "pairwise.complete.obs")
+cor(counties_data_no_capital$Farming, counties_data_no_capital$Coffee, use = "pairwise.complete.obs")
 
+#Model building
+mediation_model <- '
+  # Regression equations
+  Population ~ a * Farming
+  Coffee ~ b * Farming + c * Population
 
+  # Indirect effect (a * b)
+  indirect := a * b
 
-mediate_model <- lm(Farming ~ Population, data = counties_data_no_capital)
-summary(mediate_model)
-full_model <- lm(AverageHouseholdSize ~ Population + Farming, data = counties_data_no_capital)
-summary(full_model)
-results <- mediate(mediate_model, full_model, treat = "Population", mediator = "Farming", robustSE = TRUE, sims = 1000)
-summary(results)
+  # Total effect (c + indirect)
+  total := c + indirect
+'
 
-mediate_plot(AverageHouseholdSize ~ Population + Farming, data = counties_data_no_capital, mediator = Farming, method = "lm")
+mediation_results <- sem(mediation_model, data = counties_data_no_capital)
+semPaths(mediation_results, what = "stand", whatLabels = "stand", style = "ram", rotation = 2, intercepts = FALSE, residuals = FALSE, layout = "tree2", nCharNodes = 0, sizeMan = 18, nCharEdges = 0, edge.label.cex = 2)
+summary(mediation_results, standardized = TRUE)
+
+#Assumptions need to be met for each regression path, I did not have time for this.
+
+#Table
+summary_table <- tidy(mediation_results)
+kable(summary_table, caption = "Standardized Coefficients from Mediation Model")
 ```
