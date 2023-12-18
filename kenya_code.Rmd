@@ -501,7 +501,7 @@ bptest(box_cox_model)
 
 ### **Hypothesis** 2: Linear regression
 
-```{r H2}
+```{r H2: transformation}
 ##H2: Is there a positive correlation between Tea and Coffee production?
 cor(counties_data_no_capital$Tea, counties_data_no_capital$Coffee, use = "pairwise.complete.obs")
 
@@ -516,20 +516,32 @@ counties_data_no_capital |>
   ) +
   theme_minimal()
 
-tea_model <- lm(Tea ~ Coffee, data = counties_data_no_capital)
+#A square root transformation was done to make the data more normally distributed.
+counties_data_no_capital_sqrt = counties_data_no_capital |> 
+  mutate(sqrt_tea = sqrt(Tea),
+         sqrt_coffee = sqrt(Coffee))
+
+
+
+counties_data_no_capital_sqrt |> 
+  pivot_longer(cols = c(Tea, sqrt_tea), names_to = "Variable", values_to = "Value") |> 
+  mutate(Variable = factor(Variable, levels = c("Tea", "sqrt_tea"))) |> 
+  ggplot(aes(x = Value, fill = Variable)) +
+  geom_density(alpha = 0.5, color = "black", size = 1) +
+  facet_wrap(~Variable, scales = "free") +
+  labs(title = "Distribution of Tea and Square root Transformation",
+       x = "Value",
+       y = "Density") +
+  theme_classic() +
+  theme(legend.position = "none")
+```
+
+```{r H2: model}
+tea_model <- lm(sqrt_tea ~ sqrt_coffee, data = counties_data_no_capital_sqrt)
 
 #Assumption 4.1: Normality
-shapiro.test(counties_data_no_capital$Tea)
-##Normality not met
-
-counties_data_no_capital_log <- counties_data_no_capital |> 
-  mutate(Tea = log(Tea),
-         Coffee = log(Coffee))
-
-shapiro.test(counties_data_no_capital_log$Tea)
-#Normality met
-
-tea_model <- lm(Tea ~ Coffee, data = counties_data_no_capital_log)
+shapiro.test(counties_data_no_capital_sqrt$sqrt_tea)
+##Normality met
 
 #Assumption 4.2: Linearity
 raintest(tea_model)
@@ -543,16 +555,14 @@ bptest(tea_model)
 shapiro.test(tea_model$residuals)
 ##Normality of residuals met
 
-#All asumptions met
-glance(tea_model)
-summary(tea_model)
+#All assumptions met
 ```
+
 
 ## Hypothesis 2: **Results**
 
 ```{r H2 tables: Coefficients}
 apa_table <- apa.reg.table(tea_model)
-print(apa_table)
 stats.table <- as.data.frame(summary(tea_model)$coefficients)
 CI <- confint(tea_model)
 stats.table <- cbind(row.names(stats.table), stats.table, CI)
@@ -572,6 +582,8 @@ model_fit = model_fit |>
 fit_table <- cbind(row.names(model_fit), model_fit)
 nice_table(model_fit, title = "Model fit", note = c("* p < 0.05", "SD = Standard Deviation"))
 ```
+#### There is a statistically significant moderate positive correlation between Tea and Coffee production, however there is a very limited sample size, because few counties have data abouth both Tea and Coffee production. The large confidence interval aligns with this conclusion. Coffee production explains 20% of the variance in Tea production.
+
 
 ## **Hypothesis** 3: Mediation
 
