@@ -33,6 +33,9 @@ library(scales)
 library(flexplot)
 library(rempsyc)
 library(apaTables)
+library(lavaan)
+library(car)
+library(semPlot)
 
 options(scipen = 999)
 ```
@@ -633,6 +636,38 @@ cor(counties_data_no_capital$Population, counties_data_no_capital$Farming, use =
 cor(counties_data_no_capital$Population, counties_data_no_capital$Coffee, use = "pairwise.complete.obs")
 cor(counties_data_no_capital$Farming, counties_data_no_capital$Coffee, use = "pairwise.complete.obs")
 
+#Assumptions need to be met for each regression path, I did not have time for this.
+a_path <- lm(Farming ~ Population, data = counties_data_no_capital)
+b_path <- lm(Coffee ~ Population, data = counties_data_no_capital)
+c_path_in <- lm(Coffee ~ Population + Farming, data = counties_data_no_capital)
+c_path_dir <- lm(Coffee ~ Farming, data = counties_data_no_capital)
+
+#Assumptions
+
+#Assumption 5.1: Normality
+shapiro.test(counties_data_no_capital$Farming)
+shapiro.test(counties_data_no_capital$Population)
+shapiro.test(counties_data_no_capital$Coffee)
+##Normality not met for Population and Coffee
+
+#Assumption 5.2: Linearity
+raintest(a_path)
+raintest(b_path)
+raintest(c_path_in)
+raintest(c_path_dir)
+##Linearity met
+
+#Assumption 5.3: Normality of residuals
+shapiro.test(a_path$residuals)
+shapiro.test(b_path$residuals)
+shapiro.test(c_path_in$residuals)
+shapiro.test(c_path_dir$residuals)
+##Normality of residuals not met for a_path
+
+#Assumption 5.4: Multicollinearity
+vif(c_path_in)
+#There is multicollinearity between Population and Farming
+
 #Model building
 mediation_model <- '
   # Regression equations
@@ -650,9 +685,11 @@ mediation_results <- sem(mediation_model, data = counties_data_no_capital)
 semPaths(mediation_results, what = "stand", whatLabels = "stand", style = "ram", rotation = 2, intercepts = FALSE, residuals = FALSE, layout = "tree2", nCharNodes = 0, sizeMan = 18, nCharEdges = 0, edge.label.cex = 2)
 summary(mediation_results, standardized = TRUE)
 
-#Assumptions need to be met for each regression path, I did not have time for this.
-
 #Table
 summary_table <- tidy(mediation_results)
 kable(summary_table, caption = "Standardized Coefficients from Mediation Model")
 ```
+
+#### Mediation cannot be done due to the violation of assumptions.
+
+##### It was my mistake to choose this dataset, that was the reason that all analyses failed. I did the procedures nonetheless, to show that I know (somewhat) how to do them. I will choose my datasets more wisely next time.
