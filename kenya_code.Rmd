@@ -7,7 +7,12 @@ output:
   pdf_document: default
 ---
 
-```{r setup}
+# Final project using Kenya census 2019
+
+[Github tidytuesday link](https://github.com/rfordatascience/tidytuesday/blob/master/data/2021/2021-01-19/readme.md)
+
+```{r setup, eval=TRUE, echo=FALSE, warning=FALSE, message=FALSE, echo=FALSE}
+knitr::opts_chunk$set(message = FALSE, warning = FALSE)
 library(tidytuesdayR)
 library(tidyverse)
 library(tools)
@@ -16,6 +21,7 @@ library(fuzzyjoin)
 library(patchwork)
 library(knitr)
 library(gt)
+library(grid)
 library(gridExtra)
 library(broom)
 library(lmtest)
@@ -23,10 +29,17 @@ library(robustbase)
 library(MASS)
 library(mediation)
 library(devtools)
+library(scales)
 library(flexplot)
+library(rempsyc)
+library(apaTables)
+
+options(scipen = 999)
 ```
 
-```{r data import}
+## Firstly, **import** the data
+
+```{r data import, echo=TRUE, results='hide'}
 data <- tt_load('2021-01-19')
 
 gender <- data$gender
@@ -34,12 +47,21 @@ crops <- data$crops
 households <- data$households
 ```
 
-```{r data cleaning}
+## Then data **cleaning**
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, results='hide'}
 view(crops)
 str(crops)
 
-#Issue with crops, all names are caps lock
+view(households)
+str(households)
 
+view(gender)
+str(gender)
+```
+
+```{r data cleaning}
+#Issue with crops, all names are caps lock
 crops <- crops |> 
   mutate(
     SubCounty = str_to_lower(SubCounty),
@@ -47,39 +69,29 @@ crops <- crops |>
   )
 
 #Removed the Khat crop because I don't know what that is and there are too many missing values
-
 crops <- crops[, !colnames(crops) %in% "Khat (Miraa)"]
 
 
-view(households)
-str(households)
-
-view(gender)
-str(gender)
-
 #Issue with city naming, not consistent through datasets
-
 crops <- crops |> 
   mutate(
     County = SubCounty,
   ) |> 
   dplyr::select(-SubCounty)
 
-
+#Changing the naming from Total to Kenya
 gender <- gender |> 
   mutate(
     County = ifelse(County == "Total", "Kenya", County)
   )
 
+#Cleaning whitespaces
 gender$County <- gsub(" ", "", gender$County)
-
 households$County <- trimws(households$County)
-str(households)
+```
 
-colnames(households)
-
+```{r matching function and merge}
 #Function that tries to match the County names to each other by stringdist
-
 find_best_match <- function(county, reference_counties) {
   distances <- stringdistmatrix(county, reference_counties)
   best_match_index <- which.min(distances)
@@ -90,11 +102,9 @@ find_best_match <- function(county, reference_counties) {
 #Function had an issue with only one value, the Nairobi city, probably due to two words in the name
 crops$County[crops$County == "Nairobi"] <- "Nairobi City"
 crops$best_match <- sapply(crops$County, find_best_match, reference_counties = gender$County)
-
-
 households$best_match <- sapply(households$County, find_best_match, reference_counties = gender$County)
 
-
+#Merge datasets
 merged_dataset <- left_join(crops, households, by = c("best_match" = "County")) |> 
   left_join(gender, by = c("best_match" = "County"))
 
@@ -105,29 +115,55 @@ merged_dataset <- merged_dataset |>
 #County in the first column
 merged_dataset <- merged_dataset |> 
   dplyr::select(County, everything())
-
 ```
+
+# Data exploration
+
+## **Gender**
 
 ```{r}
 #Gender in the whole of Kenya
 data_kenya <- filter(merged_dataset, County == "Kenya")
-
 data_kenya_long <- pivot_longer(data_kenya, cols = c("Male", "Female", "Intersex"), names_to = "Gender", values_to = "Count")
-
 data_kenya_long |> 
-  ggplot(aes(x = Gender, y = Count)) +
-  geom_col()
+  ggplot(aes(x = reorder(Gender, -Count), y = Count)) +
+  geom_col() +
+  scale_y_continuous(labels = scales::label_number_si()) +
+  coord_flip() +
+  theme_classic() +
+  labs(
+    y = "Count",
+    x = "Gender"
+  ) +
+  ggtitle("Gender distribution in Kenya") +
+  theme(
+    axis.text.x = element_text(size = 12, family = "Times", hjust = 1),
+    axis.text.y = element_text(size = 12, family = "Times"),
+    plot.title = element_text(size = 18, family = "Times"),
+    axis.title = element_text(size = 14, family = "Times")
+  ) 
 
-#Farming production in the 5 biggest and smalles counties by production
+```
+
+## **Farming production**
+
+```{r fig.width=12, fig.height=5}
+#Farming production in the 5 biggest and smallest counties by production
 smallest_producers <- merged_dataset |> 
   arrange(Farming) |> 
   slice_head(n = 5) |> 
   ggplot(aes(x = County, y = Farming)) +
   geom_col() +
+  theme_classic() +
   labs(title = "Top 5 Counties with Smallest Farming Values",
-       x = "County",
+       x = "",
        y = "Farming") + 
-  ylim(0, 400000)
+  scale_y_continuous(labels = comma, limits = c(0,400000)) +
+  theme(
+    axis.text.x = element_text(size = 12),
+    axis.text.y = element_text(size = 12),
+    axis.title = element_text(size = 14)
+  ) 
 
 biggest_producers <- merged_dataset |> 
   filter(County != "Kenya") |> 
@@ -135,26 +171,41 @@ biggest_producers <- merged_dataset |>
   slice_head(n = 5) |> 
   ggplot(aes(x = County, y = Farming)) +
   geom_col() +
+  theme_classic() +
   labs(title = "Top 5 Counties with Biggest Farming Values",
-       x = "County",
-       y = "Farming") +
-  ylim(0, 400000)
+       x = "",
+       y = "") +
+  scale_y_continuous(labels = comma, limits = c(0,400000)) +
+  theme(
+    axis.text.x = element_text(size = 12),
+    axis.text.y = element_text(size = 12)
+  )
+  
 
-grid.arrange(smallest_producers, biggest_producers, ncol = 2)
+grid.arrange(smallest_producers, biggest_producers, ncol = 2, bottom = textGrob("County", vjust = -0.5))
 ```
 
-```{r}
-#Population in the 5 biggest and smalles counties
+## **Population**
 
+```{r fig.width=12, fig.height=5}
+#Population in the 5 biggest and smalles counties
 smallest_population <- merged_dataset |> 
   arrange(Population) |> 
   slice_head(n = 5) |> 
   ggplot(aes(x = County, y = Population)) +
   geom_col() +
+  theme_classic() +
   labs(title = "Top 5 Counties with Smallest Population",
-       x = "County",
+       x = "",
        y = "Population") + 
-  ylim(0, 3000000)
+  scale_y_continuous(labels = comma, limits = c(0,4400000)) +
+  theme(
+    axis.text.x = element_text(size = 12),
+    axis.text.y = element_text(size = 12),
+    axis.title = element_text(size = 14)
+  )
+
+
 
 biggest_population <- merged_dataset |>
   filter(County != "Kenya") |> 
@@ -162,17 +213,24 @@ biggest_population <- merged_dataset |>
   slice_head(n = 5) |> 
   ggplot(aes(x = County, y = Population)) +
   geom_col() +
+  theme_classic() +
   labs(title = "Top 5 Counties with Biggest Population",
-       x = "County",
-       y = "Population") + 
-  ylim(0, 3000000)
+       x = "",
+       y = "") + 
+  scale_y_continuous(labels = comma, limits = c(0,4400000)) +
+  theme(
+    axis.text.x = element_text(size = 12),
+    axis.text.y = element_text(size = 12)
+  )
 
-grid.arrange(smallest_population, biggest_population, ncol = 2)
+grid.arrange(smallest_population, biggest_population, ncol = 2, bottom = textGrob("County", vjust = -0.5))
 ```
 
-```{r Descriptives}
+# Descriptives
 
-#Means
+## **Means**
+
+```{r descriptives 1: means}
 merged_dataset %>%
   summarise(
     Population = mean(Population),
@@ -191,9 +249,11 @@ merged_dataset %>%
   fmt_number(
     columns = vars(Variable)
   )
+```
 
+## **Standard deviation**
 
-#Standard deviations
+```{r descriptives 2: SD}
 merged_dataset |> 
   summarise(
     Population = sd(Population),
@@ -212,41 +272,83 @@ merged_dataset |>
   fmt_number(
     columns = c(Variable)
   )
+```
 
-#Outliers with boxplots
+## **Outliers**
 
+```{r Descriptives 3: outliers, fig.width=12, fig.height=6}
 ##Population
-merged_dataset |> 
+outlier_population <- merged_dataset |> 
   filter(County != "Kenya") |> 
   ggplot(aes(x = 1, y = Population)) +
   geom_boxplot() +
   geom_text(aes(label = ifelse(Population < quantile(Population, 0.25) - 1.5 * IQR(Population) | 
                                   Population > quantile(Population, 0.75) + 1.5 * IQR(Population), County, "")),
-            size = 5)
+            size = 5) +
+  theme_classic() +
+  scale_y_continuous(labels = comma) +
+  labs(
+    title = "Outliers in Population",
+    x = "",
+    y = "Population"
+  ) +
+  theme(axis.text.x = element_blank(),
+        axis.text.y = element_text(size = 12),
+        axis.title = element_text(size = 14)
+        )
+
 ##Farming
-merged_dataset |> 
+outlier_farming <- merged_dataset |> 
   filter(County != "Kenya") |> 
   ggplot(aes(x = 1, y = Farming)) +
   geom_boxplot() +
   geom_text(aes(label = ifelse(Farming < quantile(Farming, 0.25) - 1.5 * IQR(Farming) | 
                                   Farming > quantile(Farming, 0.75) + 1.5 * IQR(Farming), County, "")),
-            size = 5)
+            size = 5) +
+  theme_classic() +
+  scale_y_continuous(labels = comma) +
+  labs(
+    title = "Outliers in Farming",
+    x = "",
+    y = "Farming"
+  ) +
+  theme(axis.text.x = element_blank(),
+        axis.text.y = element_text(size = 12),
+        axis.title = element_text(size = 14)
+        )
+
 ##Households
-merged_dataset |>
+outlier_household <- merged_dataset |>
   filter(County != "Kenya") |> 
   ggplot(aes(x = 1, y = NumberOfHouseholds)) +
   geom_boxplot() +
   geom_text(aes(label = ifelse(NumberOfHouseholds < quantile(NumberOfHouseholds, 0.25) - 1.5 * IQR(NumberOfHouseholds) | 
                                   NumberOfHouseholds > quantile(NumberOfHouseholds, 0.75) + 1.5 * IQR(NumberOfHouseholds), County, "")),
-            size = 5)
-
+            size = 5) +
+  theme_classic() +
+  scale_y_continuous(labels = comma) +
+  labs(
+    title = "Outliers in Number of Households",
+    x = "",
+    y = "Number of Households"
+  ) +
+  theme(axis.text.x = element_blank(),
+        axis.text.y = element_text(size = 12),
+        axis.title = element_text(size = 14)
+        )
 
 #Conclusion: Even though there are three outliers, I will not remove them because they represent a natural occurence, where people congregate in urban areas, and the outliers are the biggest cities in Kenya.
 
-#Plant production distribution
+grid.arrange(outlier_household, outlier_farming, outlier_population, ncol = 3)
+```
 
+#### Conclusion: Even though there are three outliers, I will not remove them because they represent a natural occurence, where people congregate in urban areas, and the outliers are the biggest cities in Kenya.
+
+## **Plant production distribution**
+
+```{r Descriptives 4: plant production}
+#Create color coding
 plants <- c("Tea", "Coffee", "Avocado", "Citrus", "Mango", "Coconut", "Macadamia", "Cashew Nut")
-
 plant_colors <- c(
   Tea = "darkgreen",
   Coffee = "saddlebrown",
@@ -258,6 +360,7 @@ plant_colors <- c(
   "Cashew Nut" = "goldenrod"
 )
 
+#Create plot
 merged_dataset |> 
   filter(County == "Kenya") |> 
   pivot_longer(cols = plants, names_to = "Crop", values_to = "Production") |> 
@@ -270,28 +373,33 @@ merged_dataset |>
     x = "Crop",
     y = "Production"
   )
-
-
 ```
 
-```{r hypotheses}
-#Linear regression
-##H1: Does the population affect the farming production?
-##H2: Is there a positive correlation between Tea and Coffee production?
+# Hypotheses
 
+## 1. **Linear regression**
 
-#Mediation
-##H3: Farming is a mediator between population and number of households
+-   H1: Does the *population* affect the *farming production*?
 
-```
+-   H2: Is there a positive correlation between *Tea* and *Coffee* production?
+
+## 2. **Mediation**
+
+-   H3: *Farming* is a mediator between *population* and *number of households*
+
+### **Hypothesis** 1.a: Linear regression
 
 ```{r H1, linear regression model 1}
 #Does the population affect the farming production?
+
+#Delete Kenya
 counties_data <- merged_dataset |> 
   filter(County != "Kenya")
 
+#Check if they correlate
 cor(counties_data$Population, counties_data$Farming)
 
+#Create plot
 counties_data |> 
   ggplot(aes(x = Population, y = Farming)) +
   geom_point() +
@@ -304,126 +412,97 @@ counties_data |>
   theme_minimal()
 
 #Assumption 1.1: Normality
-
-
-
 shapiro.test(counties_data$Population)
 hist(counties_data$Population)
 shapiro.test(counties_data$Farming)
 hist(counties_data$Farming)
-
 ##Nairobi significantly alters the normality
 
 pop_farming <- lm(Farming ~ Population, data = counties_data)
-glance(pop_farming)
 
 #Assumption 1.2: Linearity
-
 raintest(pop_farming)
-
 ##Shows nonlinearity
 
 #Assumption 1.3: Homoscedasticity
-
 bptest(pop_farming)
-
 ##Shows heteroscedasticity
 
 #Assumption 1.4: Normality of residuals
-
 shapiro.test(pop_farming$residuals)
-
 ##Normality of residuals met
 
+#Summary of model
+glance(pop_farming)
 #Overall the model does not work with Nairobi in it
-
-
 ```
+
+### **Hypothesis** 1.b: Linear regression without Nairobi
 
 ```{r H1, linear regression model 2}
 #Assumption 2.1: Normality
-
 counties_data_no_capital <- counties_data |> 
   filter(County != "Nairobi City")
-
 shapiro.test(counties_data_no_capital$Population)
 hist(counties_data_no_capital$Population)
-
 ##Removing Nairobi results in a normal population distribution
 
 pop_farming_no_capital <- lm(Farming ~ Population, data = counties_data_no_capital)
 glance(pop_farming_no_capital)
 
 #Assumption 2.2: Linearity
-
 raintest(pop_farming_no_capital)
-
 ##Shows linearity
 
 #Assumption 2.3: Homoscedasticity
-
 bptest(pop_farming_no_capital)
-
 ##Still shows heteroscedasticity
 
 #Assumption 2.4: Normality of residuals
-
 shapiro.test(pop_farming_no_capital$residuals)
-
 ##Normality of residuals not met
 
 ##This model is still not sufficient, but it massively improves explanatory or predictive power, as can be seen by the R2 value.
-
 ```
 
+### **Hypothesis** 1.c: Robust regression without Nairobi
+
 ```{r H1, robust regression}
-
 #Final model
-
 ##Using the data without Nairobi so linearity is met
 
+#Box-Cox transformation
 bc <- boxcox(Farming ~ Population, data = counties_data_no_capital)
 lambda <- bc$x[which.max(bc$y)]
-
-
 box_cox_model <- lmrob(((Farming^lambda-1)/lambda) ~ Population, data = counties_data_no_capital)
 
 qqnorm(box_cox_model$residuals)
 
-#Box-Cox transformation
-
-
-
 #Huber regression
-box_cox_model <- lmrob(Farming ~ Population, data = counties_data_no_capital_sqrt)
+box_cox_model <- lmrob(Farming ~ Population, data = counties_data_no_capital)
 summary(box_cox_model)
 
 #Assumption 3.1: Normality of residuals
-
 shapiro.test(box_cox_model$residuals)
-
 ##Assumption not met
 
 #Assumption 3.2: Linearity
-
 raintest(box_cox_model)
-
 #Assumption met
 
 #Assumption 3.3: Homoscedasticity
-
 bptest(box_cox_model)
-
 #Assumption not met
 
 #Furthermore, robust regression is not suitable for less than 100 observations
 ```
 
-In conclusion, there are too many issues with the data to create a reliable regression between population and farming, especially because of the issue of nonlinearity.
+### In conclusion, there are too many issues with the data to create a reliable regression between population and farming, especially because of the issue of nonlinearity.
+
+### **Hypothesis** 2: Linear regression
 
 ```{r H2}
 ##H2: Is there a positive correlation between Tea and Coffee production?
-
 cor(counties_data_no_capital$Tea, counties_data_no_capital$Coffee, use = "pairwise.complete.obs")
 
 counties_data_no_capital |> 
@@ -440,7 +519,6 @@ counties_data_no_capital |>
 tea_model <- lm(Tea ~ Coffee, data = counties_data_no_capital)
 
 #Assumption 4.1: Normality
-
 shapiro.test(counties_data_no_capital$Tea)
 ##Normality not met
 
@@ -449,56 +527,53 @@ counties_data_no_capital_log <- counties_data_no_capital |>
          Coffee = log(Coffee))
 
 shapiro.test(counties_data_no_capital_log$Tea)
-
 #Normality met
 
 tea_model <- lm(Tea ~ Coffee, data = counties_data_no_capital_log)
 
 #Assumption 4.2: Linearity
-
 raintest(tea_model)
-
 ##Linearity met
 
 #Assumption 4.3: Homoscedasticity
-
 bptest(tea_model)
-
 ##Homoscedasticity met
 
 #Assumption 4.4: Normality of residuals
-
 shapiro.test(tea_model$residuals)
-
 ##Normality of residuals met
 
 #All asumptions met
-
 glance(tea_model)
 summary(tea_model)
-
 ```
 
-```{r H2 tables}
-library(apaTables)
+## Hypothesis 2: **Results**
+
+```{r H2 tables: Coefficients}
 apa_table <- apa.reg.table(tea_model)
 print(apa_table)
-
-library(rempsyc)
-
 stats.table <- as.data.frame(summary(tea_model)$coefficients)
-
 CI <- confint(tea_model)
-
 stats.table <- cbind(row.names(stats.table), stats.table, CI)
-
 names(stats.table) <- c("Variable", "Estimate", "Std. Error", "t-value", "p", "CI_lower", "CI_upper")
-
-nice_table(stats.table, highlight = .05)
-
-
-#Issues: no R2, no asterisk next to p value, no Notes. section
+nice_table(stats.table, highlight = .05, note = c("CI = Confidence Interval", "* p < 0.05"))
 ```
+
+```{r H2 tables: Model fit}
+model_fit <- broom::glance(tea_model)
+model_fit <- model_fit[, !(names(model_fit) %in% c("AIC", "BIC", "logLik", "nobs"))]
+names(model_fit) <- gsub("sigma", "SD", names(model_fit), ignore.case = TRUE)
+model_fit = model_fit |> 
+  mutate(
+    SD = as.numeric(SD),
+    SD = round(SD, digits = 3)
+  )
+fit_table <- cbind(row.names(model_fit), model_fit)
+nice_table(model_fit, title = "Model fit", note = c("* p < 0.05", "SD = Standard Deviation"))
+```
+
+## **Hypothesis** 3: Mediation
 
 ```{r H3, Mediation analysis}
 #H3: Farming is a mediator between population and average household size
@@ -518,4 +593,3 @@ summary(results)
 
 mediate_plot(AverageHouseholdSize ~ Population + Farming, data = counties_data_no_capital, mediator = Farming, method = "lm")
 ```
-
